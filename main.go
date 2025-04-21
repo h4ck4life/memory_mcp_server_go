@@ -75,9 +75,10 @@ func main() {
 
 	// Create MCP server
 	s := server.NewMCPServer(
-		"Efficient Memory Server",
+		"ChromeDB Memory Server",
 		"1.0.0",
 		server.WithResourceCapabilities(true, true),
+		server.WithLogging(),
 	)
 
 	// Get or create collection
@@ -88,13 +89,13 @@ func main() {
 
 	// Add memory storage tool
 	addMemoryTool := mcp.NewTool("add_memory",
-		mcp.WithDescription("Add a new memory with semantic search capabilities"),
+		mcp.WithDescription("Store text in ChromeDB with vector embeddings for semantic search"),
 		mcp.WithString("content",
 			mcp.Required(),
-			mcp.Description("The content to remember"),
+			mcp.Description("Text content to store in the database"),
 		),
 		mcp.WithString("metadata",
-			mcp.Description("Additional metadata as JSON string"),
+			mcp.Description("Optional JSON metadata for categorization"),
 		),
 	)
 
@@ -134,10 +135,10 @@ func main() {
 
 	// Add semantic search tool
 	searchTool := mcp.NewTool("search_memory",
-		mcp.WithDescription("Search for memories by semantic similarity"),
+		mcp.WithDescription("Search ChromeDB for semantically similar content"),
 		mcp.WithString("query",
 			mcp.Required(),
-			mcp.Description("Search query text"),
+			mcp.Description("Search query to find similar memories"),
 		),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of results (default: 5)"),
@@ -174,22 +175,22 @@ func main() {
 		}
 
 		// Format results
-		response := ""
+		response := fmt.Sprintf("Found %d relevant memories:\n\n", len(results))
 		for i, result := range results {
-			response += fmt.Sprintf("[%d] %s (similarity: %.3f)\n",
-				i+1, result.Content, result.Similarity)
+			response += fmt.Sprintf("[%d] %s (similarity: %.3f)\n", i+1, result.Content, result.Similarity)
 			if metadata, ok := result.Metadata["raw_metadata"]; ok && metadata != "" {
 				response += fmt.Sprintf("   Metadata: %s\n", metadata)
 			}
+			response += "\n"
 		}
 
 		return mcp.NewToolResultText(response), nil
 	})
 
-	// Add resource for collection stats
+	// Add resource for db stats
 	statsResource := mcp.NewResource(
 		"memory://stats",
-		"Memory Statistics",
+		"Memory Database Statistics",
 		mcp.WithResourceDescription("Statistics about stored memories"),
 		mcp.WithMIMEType("application/json"),
 	)
@@ -197,13 +198,65 @@ func main() {
 	s.AddResource(statsResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 		count := collection.Count()
 
-		stats := fmt.Sprintf(`{"total_memories": %d}`, count)
+		stats := fmt.Sprintf(`{
+  "total_memories": %d,
+  "database_path": "%s",
+  "collection_name": "memories"
+}`, count, dbPath)
 
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
 				URI:      "memory://stats",
 				MIMEType: "application/json",
 				Text:     stats,
+			},
+		}, nil
+	})
+
+	// Add usage guide resource
+	guideResource := mcp.NewResource(
+		"memory://guide",
+		"Memory Server Guide",
+		mcp.WithResourceDescription("Guide on using the ChromeDB memory server"),
+		mcp.WithMIMEType("text/plain"),
+	)
+
+	s.AddResource(guideResource, func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		guide := `CHROMEDB MEMORY SERVER GUIDE
+
+HOW TO STORE MEMORIES:
+Use the add_memory tool to store information with these parameters:
+- content: The text to remember (required)
+- metadata: Optional JSON string for categorization
+
+Example:
+add_memory(
+  content: "The capital of France is Paris",
+  metadata: {"type": "fact", "topic": "geography"}
+)
+
+HOW TO SEARCH MEMORIES:
+Use the search_memory tool with these parameters:
+- query: What you want to find (required)
+- limit: Maximum number of results (optional, default: 5)
+
+Example:
+search_memory(
+  query: "What is the capital of France?",
+  limit: 3
+)
+
+TIPS FOR EFFECTIVE USE:
+1. Be specific when storing information
+2. Add metadata to help with organization
+3. Focus on meaning rather than exact words when searching
+4. Higher similarity scores (>0.7) indicate better matches`
+
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "memory://guide",
+				MIMEType: "text/plain",
+				Text:     guide,
 			},
 		}, nil
 	})
