@@ -1,0 +1,2 @@
+- go mod tidy
+- go build -omemory_mcp_server.exe
